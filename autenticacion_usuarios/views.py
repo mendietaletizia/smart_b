@@ -269,14 +269,14 @@ class CheckSessionView(View):
 
 
 # ==========================================================
-# CASO DE USO 3: REGISTRAR CUENTA DEL CLIENTE
+# CASO DE USO 3: REGISTRAR CUENTA (Cliente o Administrador)
 # ==========================================================
 
 @method_decorator(csrf_exempt, name='dispatch')
 class RegisterView(View):
     """
-    CU3: Registrar Cuenta del Cliente
-    Permite a nuevos usuarios registrarse como clientes en el sistema
+    CU3: Registrar Cuenta
+    Permite a nuevos usuarios registrarse como Cliente o Administrador
     """
     
     def get(self, request):
@@ -284,9 +284,10 @@ class RegisterView(View):
         return JsonResponse({
             'endpoint': 'Register API',
             'method': 'POST',
-            'description': 'Registrar nueva cuenta de cliente',
-            'required_fields': ['nombre', 'apellido', 'email', 'contrasena', 'telefono'],
-            'optional_fields': ['direccion', 'ciudad'],
+            'description': 'Registrar nueva cuenta de usuario (cliente o administrador)',
+            'required_fields': ['nombre', 'email', 'contrasena'],
+            'optional_fields': ['apellido', 'telefono', 'direccion', 'ciudad', 'rol'],
+            'rol_options': ['cliente', 'administrador'],
             'example': {
                 'nombre': 'Juan',
                 'apellido': 'Pérez',
@@ -294,9 +295,10 @@ class RegisterView(View):
                 'contrasena': 'miPassword123',
                 'telefono': '+1234567890',
                 'direccion': 'Calle 123, #45',
-                'ciudad': 'Ciudad'
+                'ciudad': 'Ciudad',
+                'rol': 'cliente'
             },
-            'note': 'Use POST method to register. Email must be unique.'
+            'note': 'Use POST. Email único. Rol por defecto: cliente.'
         })
     
     def post(self, request):
@@ -310,6 +312,7 @@ class RegisterView(View):
             email = data.get('email', '').strip().lower()
             contrasena = data.get('contrasena', '')
             telefono = data.get('telefono', '').strip()
+            rol_solicitado = str(data.get('rol', 'cliente')).strip().lower()
             
             # Campos opcionales
             direccion = data.get('direccion', '').strip()
@@ -347,6 +350,12 @@ class RegisterView(View):
                     'message': 'Formato de email inválido'
                 }, status=400)
             
+            if rol_solicitado not in ('cliente', 'administrador'):
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Rol inválido. Use "cliente" o "administrador".'
+                }, status=400)
+            
             # Verificar si el email ya existe
             if Usuario.objects.filter(email=email).exists():
                 return JsonResponse({
@@ -354,11 +363,11 @@ class RegisterView(View):
                     'message': 'Este email ya está registrado'
                 }, status=400)
             
-            # Obtener o crear rol de Cliente
-            try:
-                rol_cliente = Rol.objects.get(nombre='Cliente')
-            except Rol.DoesNotExist:
-                rol_cliente = Rol.objects.create(nombre='Cliente')
+            # Obtener o crear rol solicitado
+            nombre_rol = 'Administrador' if rol_solicitado == 'administrador' else 'Cliente'
+            rol_obj = Rol.objects.filter(nombre__iexact=nombre_rol).first()
+            if not rol_obj:
+                rol_obj = Rol.objects.create(nombre=nombre_rol)
             
             # Crear usuario
             usuario = Usuario.objects.create(
@@ -366,7 +375,7 @@ class RegisterView(View):
                 apellido=apellido,
                 email=email,
                 telefono=telefono,
-                id_rol=rol_cliente,
+                id_rol=rol_obj,
                 estado=True
             )
             
@@ -374,20 +383,20 @@ class RegisterView(View):
             usuario.set_password(contrasena)
             usuario.save()
             
-            # Crear registro de cliente usando get_or_create para evitar duplicados
-            cliente, created = Cliente.objects.get_or_create(
-                id=usuario,
-                defaults={
-                    'direccion': direccion,
-                    'ciudad': ciudad
-                }
-            )
-            
-            # Si ya existía, actualizar datos
-            if not created:
-                cliente.direccion = direccion
-                cliente.ciudad = ciudad
-                cliente.save()
+            cliente = None
+            if rol_solicitado == 'cliente':
+                # Crear registro de cliente usando get_or_create para evitar duplicados
+                cliente, created = Cliente.objects.get_or_create(
+                    id=usuario,
+                    defaults={
+                        'direccion': direccion,
+                        'ciudad': ciudad
+                    }
+                )
+                if not created:
+                    cliente.direccion = direccion
+                    cliente.ciudad = ciudad
+                    cliente.save()
             
             # Obtener IP del cliente
             ip_address = self.get_client_ip(request)
@@ -395,9 +404,13 @@ class RegisterView(View):
             # Registrar en bitácora
             Bitacora.objects.create(
                 id_usuario=usuario,
-                accion='REGISTRO_CLIENTE',
+                accion='REGISTRO_ADMINISTRADOR' if rol_solicitado == 'administrador' else 'REGISTRO_CLIENTE',
                 modulo='AUTENTICACION',
-                descripcion=f'Nuevo cliente registrado: {usuario.nombre} {usuario.apellido}',
+                descripcion=(
+                    f'Nuevo administrador registrado: {usuario.nombre} {usuario.apellido}'
+                    if rol_solicitado == 'administrador'
+                    else f'Nuevo cliente registrado: {usuario.nombre} {usuario.apellido}'
+                ),
                 ip=ip_address
             )
             
@@ -405,22 +418,22 @@ class RegisterView(View):
             request.session['user_id'] = usuario.id
             request.session['user_email'] = usuario.email
             request.session['user_nombre'] = usuario.nombre
-            request.session['user_rol'] = 'Cliente'
+            request.session['user_rol'] = nombre_rol
             request.session['is_authenticated'] = True
 
             # Respuesta exitosa
             return JsonResponse({
                 'success': True,
-                'message': 'Cuenta de cliente creada exitosamente',
+                'message': 'Cuenta creada exitosamente',
                 'user': {
                     'id': usuario.id,
                     'nombre': usuario.nombre,
                     'apellido': usuario.apellido,
                     'email': usuario.email,
                     'telefono': usuario.telefono,
-                    'direccion': cliente.direccion,
-                    'ciudad': cliente.ciudad,
-                    'rol': 'Cliente'
+                    'direccion': cliente.direccion if cliente else None,
+                    'ciudad': cliente.ciudad if cliente else None,
+                    'rol': nombre_rol
                 }
             }, status=201)
             
