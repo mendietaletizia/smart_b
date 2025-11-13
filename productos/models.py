@@ -97,3 +97,91 @@ class Medidas(models.Model):
 
     def __str__(self):
         return f"{self.producto.nombre}: {self.valor} {self.unidad}"
+
+
+class Oferta(models.Model):
+    """Modelo para ofertas de productos basadas en fechas y predicciones de IA"""
+    ESTADOS_OFERTA = [
+        ('activa', 'Activa'),
+        ('programada', 'Programada'),
+        ('finalizada', 'Finalizada'),
+        ('cancelada', 'Cancelada'),
+    ]
+    
+    id_oferta = models.AutoField(primary_key=True)
+    nombre = models.CharField(max_length=200)
+    descripcion = models.TextField(blank=True, null=True)
+    producto = models.ForeignKey(Producto, on_delete=models.CASCADE, db_column='id_producto', null=True, blank=True)
+    categoria = models.ForeignKey(Categoria, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_categoria')
+    descuento_porcentaje = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    precio_oferta = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    fecha_inicio = models.DateTimeField()
+    fecha_fin = models.DateTimeField()
+    estado = models.CharField(max_length=20, choices=ESTADOS_OFERTA, default='programada')
+    imagen = models.URLField(max_length=500, blank=True, null=True)
+    basada_en_ia = models.BooleanField(default=False)  # Si fue sugerida por IA
+    razon_ia = models.TextField(blank=True, null=True)  # Razón por la que IA sugirió esta oferta
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'oferta'
+        verbose_name = 'Oferta'
+        verbose_name_plural = 'Ofertas'
+        ordering = ['-fecha_inicio']
+    
+    def __str__(self):
+        return f"{self.nombre} - {self.descuento_porcentaje}%"
+    
+    @property
+    def esta_activa(self):
+        from django.utils import timezone
+        ahora = timezone.now()
+        return self.estado == 'activa' and self.fecha_inicio <= ahora <= self.fecha_fin
+
+
+class CuponDescuento(models.Model):
+    """Modelo para cupones de descuento"""
+    ESTADOS_CUPON = [
+        ('activo', 'Activo'),
+        ('usado', 'Usado'),
+        ('expirado', 'Expirado'),
+        ('cancelado', 'Cancelado'),
+    ]
+    
+    TIPOS_DESCUENTO = [
+        ('porcentaje', 'Porcentaje'),
+        ('fijo', 'Monto Fijo'),
+    ]
+    
+    id_cupon = models.AutoField(primary_key=True)
+    codigo = models.CharField(max_length=50, unique=True)
+    descripcion = models.TextField(blank=True, null=True)
+    tipo_descuento = models.CharField(max_length=20, choices=TIPOS_DESCUENTO, default='porcentaje')
+    valor_descuento = models.DecimalField(max_digits=10, decimal_places=2)
+    monto_minimo = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    fecha_inicio = models.DateTimeField()
+    fecha_fin = models.DateTimeField()
+    estado = models.CharField(max_length=20, choices=ESTADOS_CUPON, default='activo')
+    usos_maximos = models.IntegerField(default=1)
+    usos_actuales = models.IntegerField(default=0)
+    aplicable_a_todos = models.BooleanField(default=True)
+    categoria = models.ForeignKey(Categoria, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_categoria')
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'cupon_descuento'
+        verbose_name = 'Cupón de Descuento'
+        verbose_name_plural = 'Cupones de Descuento'
+        ordering = ['-fecha_creacion']
+    
+    def __str__(self):
+        return f"{self.codigo} - {self.valor_descuento}%"
+    
+    @property
+    def esta_activo(self):
+        from django.utils import timezone
+        ahora = timezone.now()
+        return (self.estado == 'activo' and 
+                self.fecha_inicio <= ahora <= self.fecha_fin and
+                self.usos_actuales < self.usos_maximos)

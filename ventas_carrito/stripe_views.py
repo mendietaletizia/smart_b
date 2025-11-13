@@ -188,6 +188,13 @@ class CreatePaymentIntentView(View):
                         precio_unitario=item.precio_unitario
                     )
             
+            # Notificar a administradores sobre nueva venta
+            try:
+                from autenticacion_usuarios.notificaciones_views import notificar_nueva_venta
+                notificar_nueva_venta(venta)
+            except Exception as e:
+                logger.warning(f"Error notificando nueva venta: {str(e)}")
+            
             # Obtener o crear método de pago Stripe
             metodo_pago, _ = MetodoPago.objects.get_or_create(nombre='Stripe')
             

@@ -419,7 +419,7 @@ class CarritoManagementView(View):
             }, status=404)
 
     def _apply_discount(self, request, data):
-        """CU9: Aplicar descuento al carrito"""
+        """CU9: Aplicar descuento al carrito usando cupones reales"""
         codigo_descuento = data.get('codigo_descuento')
         porcentaje = data.get('porcentaje', 0)
         
@@ -431,32 +431,113 @@ class CarritoManagementView(View):
         
         carrito = self._get_or_create_carrito(request)
         
-        # Por simplicidad, aplicamos un descuento del 10% si se proporciona código
+        # Validar cupón desde la base de datos
         if codigo_descuento:
-            if codigo_descuento.upper() in ['DESCUENTO10', 'WELCOME10', 'PRIMERA10']:
-                porcentaje = 10
-            else:
+            try:
+                from productos.models import CuponDescuento
+                from django.utils import timezone
+                from decimal import Decimal
+                
+                cupon = CuponDescuento.objects.get(codigo=codigo_descuento.upper().strip())
+                ahora = timezone.now()
+                
+                # Validar que esté activo
+                if not cupon.esta_activo:
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'El cupón no está activo o ha expirado'
+                    }, status=400)
+                
+                # Validar usos disponibles
+                if cupon.usos_actuales >= cupon.usos_maximos:
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'El cupón ha alcanzado su límite de usos'
+                    }, status=400)
+                
+                # Calcular total del carrito
+                items = ItemCarrito.objects.filter(carrito=carrito)
+                total_carrito = sum(item.get_subtotal() for item in items)
+                
+                # Validar monto mínimo
+                if cupon.monto_minimo > 0 and total_carrito < float(cupon.monto_minimo):
+                    return JsonResponse({
+                        'success': False,
+                        'message': f'El cupón requiere un monto mínimo de Bs. {cupon.monto_minimo:.2f}'
+                    }, status=400)
+                
+                # Aplicar descuento según tipo
+                items_actualizados = 0
+                if cupon.tipo_descuento == 'porcentaje':
+                    porcentaje = float(cupon.valor_descuento)
+                    for item in items:
+                        precio_original = float(item.producto.precio)
+                        precio_descuento = precio_original * (1 - porcentaje / 100)
+                        item.precio_unitario = Decimal(str(precio_descuento))
+                        item.save()
+                        items_actualizados += 1
+                else:  # fijo (monto fijo)
+                    # Aplicar descuento fijo al total (distribuido proporcionalmente)
+                    descuento_total = float(cupon.valor_descuento)
+                    if descuento_total > total_carrito:
+                        descuento_total = total_carrito
+                    
+                    # Distribuir el descuento proporcionalmente
+                    for item in items:
+                        subtotal = float(item.get_subtotal())
+                        proporcion = subtotal / total_carrito if total_carrito > 0 else 0
+                        descuento_item = descuento_total * proporcion
+                        precio_original = float(item.producto.precio)
+                        precio_descuento = precio_original - (descuento_item / item.cantidad)
+                        if precio_descuento < 0:
+                            precio_descuento = 0
+                        item.precio_unitario = Decimal(str(precio_descuento))
+                        item.save()
+                        items_actualizados += 1
+                
+                # Incrementar usos del cupón
+                cupon.usos_actuales += 1
+                cupon.save()
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Cupón "{cupon.codigo}" aplicado exitosamente',
+                    'descuento_aplicado': porcentaje if cupon.tipo_descuento == 'porcentaje' else descuento_total,
+                    'tipo_descuento': cupon.tipo_descuento,
+                    'items_actualizados': items_actualizados
+                }, status=200)
+                
+            except CuponDescuento.DoesNotExist:
                 return JsonResponse({
                     'success': False,
                     'message': 'Código de descuento no válido'
-                }, status=400)
+                }, status=404)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error aplicando cupón: {str(e)}", exc_info=True)
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Error al aplicar cupón: {str(e)}'
+                }, status=500)
         
-        # Aplicar descuento a todos los items del carrito
-        items = ItemCarrito.objects.filter(carrito=carrito)
-        items_actualizados = 0
-        
-        for item in items:
-            precio_original = item.producto.precio
-            precio_descuento = precio_original * (1 - porcentaje / 100)
-            item.precio_unitario = precio_descuento
-            item.save()
-            items_actualizados += 1
-        
-        return JsonResponse({
-            'success': True,
-            'message': f'Descuento del {porcentaje}% aplicado a {items_actualizados} items',
-            'descuento_aplicado': porcentaje
-        }, status=200)
+        # Si se proporciona porcentaje directo (sin código)
+        if porcentaje:
+            items = ItemCarrito.objects.filter(carrito=carrito)
+            items_actualizados = 0
+            
+            for item in items:
+                precio_original = float(item.producto.precio)
+                precio_descuento = precio_original * (1 - porcentaje / 100)
+                item.precio_unitario = Decimal(str(precio_descuento))
+                item.save()
+                items_actualizados += 1
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Descuento del {porcentaje}% aplicado a {items_actualizados} items',
+                'descuento_aplicado': porcentaje
+            }, status=200)
 
     def _get_or_create_carrito(self, request):
         """Método auxiliar para obtener o crear carrito"""

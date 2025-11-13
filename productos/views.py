@@ -56,10 +56,10 @@ class ProductoListView(View):
             # Paginación (simple, se puede mejorar con Django Paginator)
             try:
                 page = int(request.GET.get('page', 1))
-                page_size = int(request.GET.get('page_size', 10))
+                page_size = int(request.GET.get('page_size', 100))  # Aumentado a 100 por defecto
             except ValueError:
                 page = 1
-                page_size = 10
+                page_size = 100
             
             start = (page - 1) * page_size
             end = start + page_size
@@ -68,44 +68,58 @@ class ProductoListView(View):
             productos = productos[start:end]
 
             data = []
+            productos_ids_procesados = set()
             for p in productos:
                 try:
+                    # Evitar duplicados
+                    if p.id in productos_ids_procesados:
+                        continue
+                    productos_ids_procesados.add(p.id)
+                    
                     # Obtener stock actual de forma segura
                     stock_cantidad = 0
                     try:
-                        stock_obj = Stock.objects.filter(producto=p).first()
+                        stock_obj = Stock.objects.filter(producto_id=p.id).first()
                         if stock_obj:
                             stock_cantidad = stock_obj.cantidad
-                    except Exception:
-                        pass
+                    except Exception as stock_error:
+                        logger.warning(f"Error obteniendo stock para producto {p.id}: {str(stock_error)}")
                     
                     # Acceso seguro a relaciones
                     categoria_nombre = None
                     try:
-                        if p.categoria:
-                            categoria_nombre = p.categoria.nombre
-                    except Exception:
-                        pass
+                        if p.categoria_id:
+                            categoria_nombre = p.categoria.nombre if p.categoria else None
+                    except Exception as cat_error:
+                        logger.warning(f"Error obteniendo categoría para producto {p.id}: {str(cat_error)}")
                     
                     marca_nombre = None
                     try:
-                        if p.marca:
-                            marca_nombre = p.marca.nombre
-                    except Exception:
-                        pass
+                        if p.marca_id:
+                            marca_nombre = p.marca.nombre if p.marca else None
+                    except Exception as marca_error:
+                        logger.warning(f"Error obteniendo marca para producto {p.id}: {str(marca_error)}")
                     
                     proveedor_nombre = None
                     try:
-                        if p.proveedor:
-                            proveedor_nombre = p.proveedor.nombre
-                    except Exception:
-                        pass
+                        if p.proveedor_id:
+                            proveedor_nombre = p.proveedor.nombre if p.proveedor else None
+                    except Exception as prov_error:
+                        logger.warning(f"Error obteniendo proveedor para producto {p.id}: {str(prov_error)}")
+                    
+                    # Asegurar que el precio sea válido
+                    precio_valor = 0.0
+                    try:
+                        if p.precio is not None:
+                            precio_valor = float(p.precio)
+                    except (ValueError, TypeError):
+                        logger.warning(f"Precio inválido para producto {p.id}: {p.precio}")
                     
                     data.append({
                         'id': p.id,
                         'nombre': p.nombre or '',
                         'descripcion': p.descripcion or '',
-                        'precio': float(p.precio) if p.precio else 0.0,
+                        'precio': precio_valor,
                         'stock': stock_cantidad,
                         'imagen': p.imagen or '',
                         'categoria': categoria_nombre,
@@ -114,8 +128,24 @@ class ProductoListView(View):
                         'estado': True,
                     })
                 except Exception as e:
-                    # Si hay error con un producto, continuar con los demás
-                    logger.error(f"Error procesando producto {p.id}: {str(e)}", exc_info=True)
+                    # Si hay error con un producto, loguear pero continuar con los demás
+                    logger.error(f"Error procesando producto {p.id} (nombre: {getattr(p, 'nombre', 'N/A')}): {str(e)}", exc_info=True)
+                    # Intentar agregar el producto de todas formas con datos mínimos
+                    try:
+                        data.append({
+                            'id': p.id,
+                            'nombre': getattr(p, 'nombre', 'Producto sin nombre') or 'Producto sin nombre',
+                            'descripcion': getattr(p, 'descripcion', '') or '',
+                            'precio': 0.0,
+                            'stock': 0,
+                            'imagen': getattr(p, 'imagen', '') or '',
+                            'categoria': None,
+                            'marca': None,
+                            'proveedor': None,
+                            'estado': True,
+                        })
+                    except:
+                        pass  # Si ni siquiera esto funciona, saltar el producto
                     continue
             
             return JsonResponse({
@@ -175,44 +205,58 @@ class ProductoAdminView(View):
             productos = productos[start:end]
 
             data = []
+            productos_ids_procesados = set()
             for p in productos:
                 try:
+                    # Evitar duplicados
+                    if p.id in productos_ids_procesados:
+                        continue
+                    productos_ids_procesados.add(p.id)
+                    
                     # Obtener stock actual de forma segura
                     stock_cantidad = 0
                     try:
-                        stock_obj = Stock.objects.filter(producto=p).first()
+                        stock_obj = Stock.objects.filter(producto_id=p.id).first()
                         if stock_obj:
                             stock_cantidad = stock_obj.cantidad
-                    except Exception:
-                        pass
+                    except Exception as stock_error:
+                        logger.warning(f"Error obteniendo stock para producto {p.id}: {str(stock_error)}")
                     
                     # Acceso seguro a relaciones
                     categoria_nombre = None
                     try:
-                        if p.categoria:
-                            categoria_nombre = p.categoria.nombre
-                    except Exception:
-                        pass
+                        if p.categoria_id:
+                            categoria_nombre = p.categoria.nombre if p.categoria else None
+                    except Exception as cat_error:
+                        logger.warning(f"Error obteniendo categoría para producto {p.id}: {str(cat_error)}")
                     
                     marca_nombre = None
                     try:
-                        if p.marca:
-                            marca_nombre = p.marca.nombre
-                    except Exception:
-                        pass
+                        if p.marca_id:
+                            marca_nombre = p.marca.nombre if p.marca else None
+                    except Exception as marca_error:
+                        logger.warning(f"Error obteniendo marca para producto {p.id}: {str(marca_error)}")
                     
                     proveedor_nombre = None
                     try:
-                        if p.proveedor:
-                            proveedor_nombre = p.proveedor.nombre
-                    except Exception:
-                        pass
+                        if p.proveedor_id:
+                            proveedor_nombre = p.proveedor.nombre if p.proveedor else None
+                    except Exception as prov_error:
+                        logger.warning(f"Error obteniendo proveedor para producto {p.id}: {str(prov_error)}")
+                    
+                    # Asegurar que el precio sea válido
+                    precio_valor = 0.0
+                    try:
+                        if p.precio is not None:
+                            precio_valor = float(p.precio)
+                    except (ValueError, TypeError):
+                        logger.warning(f"Precio inválido para producto {p.id}: {p.precio}")
                     
                     data.append({
                         'id': p.id,
                         'nombre': p.nombre or '',
                         'descripcion': p.descripcion or '',
-                        'precio': float(p.precio) if p.precio else 0.0,
+                        'precio': precio_valor,
                         'stock': stock_cantidad,
                         'imagen': p.imagen or '',
                         'categoria': categoria_nombre,
@@ -221,8 +265,24 @@ class ProductoAdminView(View):
                         'estado': True,
                     })
                 except Exception as e:
-                    # Si hay error con un producto, continuar con los demás
-                    logger.error(f"Error procesando producto {p.id}: {str(e)}", exc_info=True)
+                    # Si hay error con un producto, loguear pero continuar con los demás
+                    logger.error(f"Error procesando producto {p.id} (nombre: {getattr(p, 'nombre', 'N/A')}): {str(e)}", exc_info=True)
+                    # Intentar agregar el producto de todas formas con datos mínimos
+                    try:
+                        data.append({
+                            'id': p.id,
+                            'nombre': getattr(p, 'nombre', 'Producto sin nombre') or 'Producto sin nombre',
+                            'descripcion': getattr(p, 'descripcion', '') or '',
+                            'precio': 0.0,
+                            'stock': 0,
+                            'imagen': getattr(p, 'imagen', '') or '',
+                            'categoria': None,
+                            'marca': None,
+                            'proveedor': None,
+                            'estado': True,
+                        })
+                    except:
+                        pass  # Si ni siquiera esto funciona, saltar el producto
                     continue
             
             return JsonResponse({

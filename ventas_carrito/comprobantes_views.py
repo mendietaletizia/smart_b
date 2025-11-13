@@ -351,8 +351,16 @@ class ComprobanteView(View):
             [Paragraph(f"NIT/CI: {comprobante.nit or 'N/A'}", small_style)],
             [Paragraph(f"Email: {cliente.email}", small_style)],
             [Paragraph(f"Tel: {cliente.telefono or 'N/A'}", small_style)],
-            [Paragraph(f"Dirección: {venta.direccion_entrega or f'{venta.cliente.direccion or ""}, {venta.cliente.ciudad or ""}'.strip() or 'N/A'}", small_style)],
         ]
+
+        # Obtener dirección del cliente o de la venta
+        direccion = venta.direccion_entrega
+        if not direccion:
+            direccion = f"{venta.cliente.direccion or ''}, {venta.cliente.ciudad or ''}".strip() or "N/A"
+
+        cliente_info.append(
+            [Paragraph(f"Dirección: {direccion}", small_style)]
+        )
         
         info_data = [
             [

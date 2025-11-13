@@ -98,6 +98,15 @@ class CheckoutView(View):
                 notas=notas
             )
             
+            # Notificar a administradores sobre nueva venta
+            try:
+                from autenticacion_usuarios.notificaciones_views import notificar_nueva_venta
+                notificar_nueva_venta(venta)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Error notificando nueva venta: {str(e)}")
+            
             # Crear detalles de venta y actualizar stock
             from productos.models import Stock
             import logging

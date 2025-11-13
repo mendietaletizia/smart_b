@@ -520,7 +520,7 @@ class GenerarPrediccionesView(View):
             categoria = None
             if categoria_id:
                 try:
-                    categoria = Categoria.objects.get(id=categoria_id)
+                    categoria = Categoria.objects.get(id_categoria=categoria_id)
                     # Filtrar ventas por categoría a través de DetalleVenta
                     ventas_historicas = ventas_historicas.filter(
                         detalles__producto__categoria=categoria
@@ -540,36 +540,40 @@ class GenerarPrediccionesView(View):
             )
             
             # Calcular promedio mensual de ventas
-            total_ventas_recientes = ventas_recientes.aggregate(
+            total_ventas_recientes_raw = ventas_recientes.aggregate(
                 total=Sum('total')
             )['total'] or 0
+            # Convertir Decimal a float
+            total_ventas_recientes = float(total_ventas_recientes_raw) if total_ventas_recientes_raw else 0.0
             
             # Calcular promedio por mes
             meses_historicos = 3
-            promedio_mensual = total_ventas_recientes / meses_historicos if meses_historicos > 0 else 0
+            promedio_mensual = float(total_ventas_recientes / meses_historicos) if meses_historicos > 0 else 0.0
             
             # Calcular tendencia (crecimiento o decrecimiento)
             # Comparar últimos 30 días vs 30 días anteriores
             ultimos_30_dias = fecha_actual - timedelta(days=30)
             anteriores_30_dias = ultimos_30_dias - timedelta(days=30)
             
-            ventas_ultimos_30 = ventas_recientes.filter(
+            ventas_ultimos_30_raw = ventas_recientes.filter(
                 fecha_venta__gte=ultimos_30_dias
             ).aggregate(total=Sum('total'))['total'] or 0
+            ventas_ultimos_30 = float(ventas_ultimos_30_raw) if ventas_ultimos_30_raw else 0.0
             
-            ventas_anteriores_30 = ventas_recientes.filter(
+            ventas_anteriores_30_raw = ventas_recientes.filter(
                 fecha_venta__gte=anteriores_30_dias,
                 fecha_venta__lt=ultimos_30_dias
             ).aggregate(total=Sum('total'))['total'] or 0
+            ventas_anteriores_30 = float(ventas_anteriores_30_raw) if ventas_anteriores_30_raw else 0.0
             
             # Calcular factor de crecimiento
             if ventas_anteriores_30 > 0:
-                factor_crecimiento = (ventas_ultimos_30 - ventas_anteriores_30) / ventas_anteriores_30
+                factor_crecimiento = float((ventas_ultimos_30 - ventas_anteriores_30) / ventas_anteriores_30)
             else:
                 factor_crecimiento = 0.05  # 5% de crecimiento por defecto
             
             # Limitar el factor de crecimiento a un rango razonable (-20% a +20%)
-            factor_crecimiento = max(-0.2, min(0.2, factor_crecimiento))
+            factor_crecimiento = max(-0.2, min(0.2, float(factor_crecimiento)))
             
             # Generar predicciones
             predicciones = []
@@ -598,21 +602,22 @@ class GenerarPrediccionesView(View):
                 factor_crecimiento_ajustado = factor_crecimiento * factor_temporal
                 
                 if periodo == 'semana':
-                    valor_base = promedio_mensual / 4  # Promedio semanal
+                    valor_base = float(promedio_mensual) / 4.0  # Promedio semanal
                 elif periodo == 'dia':
-                    valor_base = promedio_mensual / 30  # Promedio diario
+                    valor_base = float(promedio_mensual) / 30.0  # Promedio diario
                 else:
-                    valor_base = promedio_mensual
+                    valor_base = float(promedio_mensual)
                 
                 # Aplicar crecimiento proyectado
-                valor_predicho = valor_base * (1 + factor_crecimiento_ajustado)
+                factor_crecimiento_ajustado_float = float(factor_crecimiento_ajustado)
+                valor_predicho = float(valor_base) * (1.0 + factor_crecimiento_ajustado_float)
                 
                 # Agregar variabilidad aleatoria (simulando incertidumbre del modelo)
                 variabilidad = random.uniform(-0.1, 0.1)  # ±10% de variación
-                valor_predicho = valor_predicho * (1 + variabilidad)
+                valor_predicho = float(valor_predicho) * (1.0 + float(variabilidad))
                 
                 # Asegurar que el valor sea positivo
-                valor_predicho = max(0, valor_predicho)
+                valor_predicho = max(0.0, float(valor_predicho))
                 
                 # Calcular confianza (disminuye con el tiempo)
                 confianza = confianza_base * (1 - i * 0.05)
@@ -636,7 +641,7 @@ class GenerarPrediccionesView(View):
                     'valor_predicho': round(valor_predicho, 2),
                     'confianza': round(confianza, 3),
                     'categoria': {
-                        'id': categoria.id,
+                        'id': categoria.id_categoria,
                         'nombre': categoria.nombre
                     } if categoria else None,
                     'modelo_version': modelo.version
@@ -646,8 +651,8 @@ class GenerarPrediccionesView(View):
                 fecha_prediccion += incremento
             
             # Calcular totales
-            total_predicho = sum(p['valor_predicho'] for p in predicciones)
-            confianza_promedio = sum(p['confianza'] for p in predicciones) / len(predicciones) if predicciones else 0
+            total_predicho = float(sum(float(p['valor_predicho']) for p in predicciones))
+            confianza_promedio = float(sum(float(p['confianza']) for p in predicciones) / len(predicciones)) if predicciones else 0.0
             
             return JsonResponse({
                 'success': True,
@@ -659,7 +664,7 @@ class GenerarPrediccionesView(View):
                     'periodo': periodo,
                     'meses_futuros': meses_futuros,
                     'categoria': {
-                        'id': categoria.id,
+                        'id': categoria.id_categoria,
                         'nombre': categoria.nombre
                     } if categoria else None,
                     'modelo_usado': {
@@ -670,10 +675,10 @@ class GenerarPrediccionesView(View):
                     }
                 },
                 'tendencias': {
-                    'promedio_mensual_historico': round(promedio_mensual, 2),
-                    'factor_crecimiento': round(factor_crecimiento * 100, 2),  # En porcentaje
-                    'ventas_ultimos_30_dias': round(ventas_ultimos_30, 2),
-                    'ventas_anteriores_30_dias': round(ventas_anteriores_30, 2)
+                    'promedio_mensual_historico': round(float(promedio_mensual), 2),
+                    'factor_crecimiento': round(float(factor_crecimiento) * 100.0, 2),  # En porcentaje
+                    'ventas_ultimos_30_dias': round(float(ventas_ultimos_30), 2),
+                    'ventas_anteriores_30_dias': round(float(ventas_anteriores_30), 2)
                 }
             }, status=200)
             
@@ -705,7 +710,8 @@ class GenerarPrediccionesView(View):
             predicciones = PrediccionVenta.objects.all().select_related('categoria', 'modelo')
             
             if categoria_id:
-                predicciones = predicciones.filter(categoria_id=categoria_id)
+                # Usar el campo correcto del ForeignKey (id_categoria en la BD)
+                predicciones = predicciones.filter(categoria__id_categoria=categoria_id)
             
             if fecha_desde:
                 try:
@@ -731,7 +737,7 @@ class GenerarPrediccionesView(View):
                     'valor_predicho': float(pred.valor_predicho),
                     'confianza': pred.confianza,
                     'categoria': {
-                        'id': pred.categoria.id,
+                        'id': pred.categoria.id_categoria,
                         'nombre': pred.categoria.nombre
                     } if pred.categoria else None,
                     'modelo_version': pred.modelo_version,
