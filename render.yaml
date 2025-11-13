@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: backend_smarttt
+    env: python
+    plan: free
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn backend_smart.wsgi:application"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: leti
+          property: connectionString
+      - key: SECRET_KEY
+        value: "a-r@8ccuqtgpy^6&r3tf4u7d8@k$kkq1c5qwm4+q)zs_%7ceo21"
+      - key: DEBUG
+        value: "False"
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+
+databases:
+  - name: leti
